@@ -27,7 +27,8 @@ data:
   DATA_DIR: "/data"
   SESSION_TTL_HOURS: "168"
   WRITES_PER_MINUTE: "30"
-  # Verified e-mails (comma-separated) that may edit / delete any comment. Empty: everyone edits their own only.
+  # Verified e-mails (comma-separated) that may edit / delete any comment. Left empty here (public repo): the real
+  # value comes from the optional Secret keynote-comments-admin (key ADMIN_EMAILS), which overrides this key.
   ADMIN_EMAILS: ""
   S3_PREFIX: "keynote-comments"
   SNAPSHOT_MINUTES: "15"
@@ -64,6 +65,8 @@ spec:
           envFrom:
             - configMapRef: { name: keynote-comments }
             - secretRef: { name: keynote-comments-s3, optional: true }
+            # Moderators (owner decision 2026-11-24: the owner only), kept out of git. Listed last: it wins over the ConfigMap.
+            - secretRef: { name: keynote-comments-admin, optional: true }
           ports: [ { name: http, containerPort: 8080 } ]
           readinessProbe: { httpGet: { path: /healthz, port: http }, initialDelaySeconds: 2, periodSeconds: 10 }
           livenessProbe: { httpGet: { path: /healthz, port: http }, initialDelaySeconds: 10, periodSeconds: 20 }
