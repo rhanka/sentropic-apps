@@ -1,0 +1,17 @@
+# feedbacks.sent-tech.ca — remote comments of the dev-mtl keynote deck (draft, NOT applied).
+# Apply (owner approval required, production):
+#   kubectl apply --server-side -k deploy/keynote-feedbacks
+# --server-side is required: the generated ConfigMap holds the 0.5 MB service bundle, above the 256 KiB limit of the
+# client-side "last-applied" annotation.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sentropic
+resources:
+  - keynote-feedbacks.yaml
+# The service code: ONE generated file (server.mjs, built by `node review/remote/build.mjs` in
+# rhanka/dev-mtl-keynote-2026 and copied here), mounted into a stock Node image pinned by digest. No custom image.
+# The name carries a content hash, so a new bundle rolls the pod.
+configMapGenerator:
+  - name: keynote-feedbacks-code
+    files:
+      - server.mjs
