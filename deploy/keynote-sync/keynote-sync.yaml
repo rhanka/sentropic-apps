@@ -1,0 +1,102 @@
+# sync.sent-tech.ca — multi-screen sync service of the dev-mtl keynote (SYNC.md, owner GO 25/11).
+# Replicas 1 (Recreate): SSE state lives in memory. Sessions in emptyDir (no PVC: namespace quota full).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keynote-sync
+  labels: { app.kubernetes.io/name: keynote-sync }
+data:
+  NODE_ENV: "production"
+  NODE_OPTIONS: "--dns-result-order=ipv4first --disable-warning=ExperimentalWarning"
+  PORT: "8080"
+  HOST: "0.0.0.0"
+  PUBLIC_URL: "https://sync.sent-tech.ca"
+  SITE_URL: "https://dev-mtl-keynote-2026.sent-tech.ca/"
+  SITE_ORIGINS: "https://dev-mtl-keynote-2026.sent-tech.ca,http://127.0.0.1:8790"
+  OIDC_ISSUER: "https://auth.sent-tech.ca"
+  OIDC_CLIENT_ID: "keynote-sync"
+  DATA_DIR: "/data"
+  SESSION_TTL_HOURS: "168"
+  CMDS_PER_MINUTE: "300"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keynote-sync
+  labels: { app.kubernetes.io/name: keynote-sync }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app.kubernetes.io/name: keynote-sync } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: keynote-sync } }
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: sync
+          image: node:22.22.1-alpine3.23@sha256:8094c002d08262dba12645a3b4a15cd6cd627d30bc782f53229a2ec13ee22a00
+          command: ["node", "/app/sync-server.mjs"]
+          envFrom:
+            - configMapRef: { name: keynote-sync }
+          env:
+            - name: ADMIN_EMAILS
+              valueFrom: { secretKeyRef: { name: keynote-sync-admin, key: ADMIN_EMAILS } }
+          ports: [ { name: http, containerPort: 8080 } ]
+          readinessProbe: { httpGet: { path: /healthz, port: http }, initialDelaySeconds: 2, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /healthz, port: http }, initialDelaySeconds: 10, periodSeconds: 20 }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts:
+            - { name: code, mountPath: /app, readOnly: true }
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: code
+          configMap: { name: keynote-sync-code }
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keynote-sync
+  labels: { app.kubernetes.io/name: keynote-sync }
+spec:
+  selector: { app.kubernetes.io/name: keynote-sync }
+  ports: [ { name: http, port: 80, targetPort: http } ]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-to-keynote-sync
+  labels: { app.kubernetes.io/name: keynote-sync }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: keynote-sync } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: traefik } }
+      ports: [ { protocol: TCP, port: 8080 } ]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keynote-sync
+  labels: { app.kubernetes.io/name: keynote-sync }
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [ sync.sent-tech.ca ]
+      secretName: keynote-sync-tls
+  rules:
+    - host: sync.sent-tech.ca
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: keynote-sync, port: { name: http } } } }

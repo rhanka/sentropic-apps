@@ -1,0 +1,10 @@
+# sync.sent-tech.ca — apply: kubectl apply --server-side -k deploy/keynote-sync
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sentropic
+resources:
+  - keynote-sync.yaml
+configMapGenerator:
+  - name: keynote-sync-code
+    files:
+      - sync-server.mjs
